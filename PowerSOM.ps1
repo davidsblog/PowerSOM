@@ -1,7 +1,8 @@
-﻿class Node {
-    [int]$x = 0
-    [int]$y = 0
-    $weight = @() 
+class Node {
+    [int]$private:x = 0
+    [int]$private:y = 0
+    $private:weight = @() 
+    $private:vectors = @()
 
     Node($x, $y, $weight) {
         $this.x = $x
@@ -34,22 +35,31 @@
     }
 
     [float] getNodeDistance($node) {
-        [float]$distance = 0
-        for($i = 0; $i -lt $this.weight.Count; $i++) {
-            $distance += ($node.weight[$i] - $this.weight[$i]) * ($node.weight[$i] - $this.weight[$i])
-        }
-        return [math]::Sqrt($distance)
+        $dX = ($this.x-$node.x)
+        $dY = ($this.y-$node.y)
+
+        return [math]::Sqrt($dX*$dX + $dY*$dY)
+    }
+
+    addVector($vector) {
+        $this.vectors += $vector
+    }
+
+    [Object] getVectors() {
+        return $this.vectors
     }
 }
 
 class Map {
     $map = ,@()
-    $x
-    $y
+    $x = 10
+    $y = 10
+    $width = 10
 
     Map($x = 10, $y = 10) {
         $this.x = $x
         $this.y = $y
+        $this.width = ($x, $y | Measure -Max).Maximum/2
 
         $this.map = New-Object 'object[,]' $x, $y
 
@@ -63,7 +73,6 @@ class Map {
         }
         #Write-Host $this.map 
     }
-    
     
 
     initializeWeights($num) {
@@ -83,7 +92,7 @@ class Map {
         return $arr
     }
 
-    findBMU($vector) {
+    [Node] findBMU($vector) {
         # Calculate shortest distance to input vector
         $bmu = $this.map[0, 0]
         $minDist = $null
@@ -91,8 +100,6 @@ class Map {
         foreach($node in $this.map) {
             
             $distance = $node.getDistance($vector)
-
-             
 
             if ($minDist -eq $null) {
                 $minDist = $distance
@@ -103,33 +110,55 @@ class Map {
                 $bmu = $node
             }
             
-            Write-Host "Dist:" $distance "    Bmu:" $bmu.getX() $bmu.getY()
+            # Write-Host "Dist:" $distance "    Bmu:" $bmu.getX() $bmu.getY()
         }
-        Write-Host $bmu.getX() $bmu.getY()
+        
+        #Write-Host $bmu.getX() $bmu.getY()
+        return $bmu
     }
 
-    [float] calculateRadius($i, $numIter) {
-        $r = ($this.x, $this.y | Measure -Max).Maximum/2
-        $lambda = $numIter/[Math]::Log($r)
-        return $r*[Math]::Exp(-$i/$lambda)
+    [float] decayRadius($i, $numIter) {     
+        $lambda = $numIter/[Math]::Log($this.width)
+        return $this.width*[Math]::Exp(-$i/$lambda)
     }
 
-    [float] calculateLearningRate($i, $numIter, $rate) {
-        $lambda = $numIter/[Math]::Log($rate)
-        return $rate*[Math]::Exp(-$i/$lambda)
+    [float] decayLearningRate($i, $numIter, $rate) {
+        return $rate*[Math]::Exp(-$i/$numIter)
+    }
+
+    [float] calculateInfluence($dist) {
+        return [Math]::Exp(-($dist*$dist)/(2*$this.width*$this.width))
     }
     
     # Updates the nodes within the radius of a given node
     updateNeighbourhood($iv, $bmu, $radius, $learningRate) {
+        
         # Calculate neighbourhood
         foreach($n in $this.map) {
-            # Check if the node is in the neighbourhood
-            if ($bmu.getNodeDistance($n) -le $radius) {
-                # Update weight
-                $w = $n.getWeight() + $learningRate*(
+            $w = @()
+            $dist = $bmu.getNodeDistance($n)
+            if ($dist -le $radius) {
+                # Update weight w' = w + o*l*(v-w)
+                # Write-Host "X:" $n.x "    Y:" $n.y "    dist:" $dist "    r:" $radius
+
+                $a = $this.calculateInfluence($dist) * $learningRate
+
+                # Calculate new weight: w' = w + o*l*(v-w)
+                for($i = 0; $i -lt $iv.Count; $i++) {
+                    $w += $bmu.weight[$i] + $a*($iv[$i] - $bmu.weight[$i])
+                }
+ 
+                $n.setWeight($w)
+                
+                # Write-Host "Old W:" $n.getWeight() "    New W:" $w
+                # Write-Host "X:" $n.getX()"    Y:" $n.getY()"    W:" $n.getWeight() "    V:" $n.getVectors()
             }
         }
     } 
+
+    addVector($node, $vector) {
+        $this.map[$node.x, $node.y].addVector($vector)
+    }
 
     printMap() {
         <#foreach($node in $this.map) {
@@ -137,10 +166,8 @@ class Map {
         }#>
 
         for($i = 0; $i -lt $this.x; $i++) {
-            Write-Host "i: $i"
             for($j = 0; $j -lt $this.y; $j++) {
-                Write-Host "j: $j"
-                Write-Host "X:" $this.map[$i, $j].getX()"    Y:" $this.map[$i, $j].getY()"    W:" $this.map[$i, $j].getWeight()
+                Write-Host "X:" $this.map[$i, $j].getX()"    Y:" $this.map[$i, $j].getY()"    W:" $this.map[$i, $j].getWeight() "    V:" $this.map[$i, $j].getVectors()
             }
         }
     }
@@ -169,27 +196,72 @@ class PowerSOM {
         
     }
 
-    train($data, $numIter) {
+    train($data, $epochs) {
         $this.map.initializeWeights($data[0].Count)
-        $this.map.printMap()
 
-        # Select random vector
-        $inVect = $data[$this.getRandomNum(0..($data.Count-1), $null)]
-        Write-Host $inVect
+        for($i = 0; $i -lt $epochs; $i++) {
+            # Select random input vector
+            $inVect = $data[$this.getRandomNum(0..($data.Count-1), $null)]
 
-        $bmu = $this.map.findBMU($inVect)
-        $radius = $this.map.calculateRadius(0, $numIter)
-        $this.map.updateNeighbourhood($bmu, $radius)
+            # Write-Host "In vector:" $inVect
 
-        <# Testing decay function
-        for($i = 0; $i -lt 20; $i++) {
-            Write-Host $this.map.calculateRadius($i, 5)
+            # Find winning node
+            $bmu = $this.map.findBMU($inVect)
+
+            # Decay Radius and Learning rate
+            $radius = $this.map.decayRadius(0, $epochs)
+            $this.learnRate = $this.map.decayLearningRate(0, 20, $this.learnRate)
+
+            # Update winning node's neighbours
+            $this.map.updateNeighbourhood($inVect, $bmu, $radius, $this.learnRate)
+        }
+
+        # $this.map.printMap()
+
+        # Testing decay function
+        <#for($i = 0; $i -lt 20; $i++) {
+            Write-Host "lr:" $this.map.calculateLearningRate($i, 20, $this.learnRate)
         }#>
 
 
 
         # Capture vector
     }
+
+    mapData($data) {
+        for($i = 0; $i -lt $data.Count; $i++) {
+            $winner = $this.map.findBMU($data[$i])
+            $this.map.addVector($winner, $data[$i])
+        }
+
+        $this.map.printMap()
+    }
+
+    [float] normalizeData($data) {
+
+        for($i = 0; $i -lt $data.Count; $i++) {
+            $magnitude = 0
+
+            
+
+            # Calculate vector magnitude
+            for($j = 0; $j -lt $data[$i].Count; $j++) {
+                Write-Host $data[$i, $j]
+                $magnitude += $data[$i][$j]*$data[$i][$j]
+            }
+            $magnitude = [Math]::Sqrt($magnitude)
+
+            # Calculate unit vector
+            for($j = 0; $j -lt $data[$i].Count; $j++) {
+                $data[$i] = $data[$i][$j]/$magnitude
+            }
+
+            Write-Host $data
+        }
+        return $data
+    }
+
+
 
     [int] getRandomNum($range, $exclude) {
         $RandomRange = $range | Where-Object { $exclude -notcontains $_ }
@@ -198,12 +270,32 @@ class PowerSOM {
     }
 }
 
-$data = ((1, 2, 3, 4), 
-        (5, 6, 7, 8),
-        (9, 10, 11, 12),
-        (13, 14, 15, 16))
- 
-Write-Host $data.Count
+# Import dataset
+$header = Get-Content Documents\Code\Powershell\Credit_Card_Applications.csv
+$header = $data[0].split(",")
+#$data > Documents\Code\Powershell\d.csv
+#>
+$dataset = Import-Csv Documents\Code\Powershell\Credit_Card_Applications.csv |
+    Select -ExpandProperty
 
-$som = [PowerSOM]::new(4, 4, 10, 1.0, 0.5)
-$som.train($data)
+$trainset = @()
+
+
+Write-Host $header[0]
+
+
+<# testing
+$data = ((0.1, 0.2, 0.3, 0.4), 
+        (0.5, 0.6, 0.7, 0.8),
+        (0.9, 0.10, 0.11, 0.12),
+        (0.13, 0.14, 0.15, 0.16)) 
+Write-Host $data.Count
+#>
+
+
+$som = [PowerSOM]::new(10, 10, 16, 1.0, 0.5)
+#$data = $som.normalizeData($data)
+
+
+#$som.train($A, 1000)
+#$som.mapData($A)
