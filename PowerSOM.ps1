@@ -65,7 +65,6 @@ class Map {
 
         # Initialize map
         for($i=0; $i -lt $x; $i++) {
-            $row = @()
             for($j=0; $j -lt $y; $j++) {
                 #$row += [Node]::new($i, $j, 0.001)
                 $this.map[$i, $j] = [Node]::new($i, $j, 0.001)
@@ -98,7 +97,6 @@ class Map {
         $minDist = $null
 
         foreach($node in $this.map) {
-            
             $distance = $node.getDistance($vector)
 
             if ($minDist -eq $null) {
@@ -109,11 +107,7 @@ class Map {
                 $minDist = $distance
                 $bmu = $node
             }
-            
-            # Write-Host "Dist:" $distance "    Bmu:" $bmu.getX() $bmu.getY()
         }
-        
-        #Write-Host $bmu.getX() $bmu.getY()
         return $bmu
     }
 
@@ -161,13 +155,9 @@ class Map {
     }
 
     printMap() {
-        <#foreach($node in $this.map) {
-            Write-Host "X:" $node.getX() "    Y:" $node.getY() "    W:" $node.getWeight()
-        }#>
-
         for($i = 0; $i -lt $this.x; $i++) {
             for($j = 0; $j -lt $this.y; $j++) {
-                Write-Host "X:" $this.map[$i, $j].getX()"    Y:" $this.map[$i, $j].getY()"    W:" $this.map[$i, $j].getWeight() "    V:" $this.map[$i, $j].getVectors()
+                Write-Host "X:" $this.map[$i, $j].getX()"    Y:" $this.map[$i, $j].getY()"       V:" $this.map[$i, $j].getVectors()
             }
         }
     }
@@ -176,24 +166,18 @@ class Map {
 class PowerSOM {
     $x
     $y
-    $len
     $sigma = 1.0
     $learnRate = 0.5
     $map
 
     # Constructor
-    PowerSOM($x, $y, $len, $sigma=1.0, $learnRate=0.5) {
+    PowerSOM($x, $y, $sigma=1.0, $learnRate=0.5) {
         $this.x = $x
         $this.y = $y
-        $this.len = $len
         $this.sigma = $sigma
         $this.learnRate = $learnRate
 
         $this.map = [Map]::new($x, $y)
-    }
-
-    activate($x) {
-        
     }
 
     train($data, $epochs) {
@@ -215,17 +199,6 @@ class PowerSOM {
             # Update winning node's neighbours
             $this.map.updateNeighbourhood($inVect, $bmu, $radius, $this.learnRate)
         }
-
-        # $this.map.printMap()
-
-        # Testing decay function
-        <#for($i = 0; $i -lt 20; $i++) {
-            Write-Host "lr:" $this.map.calculateLearningRate($i, 20, $this.learnRate)
-        }#>
-
-
-
-        # Capture vector
     }
 
     mapData($data) {
@@ -237,31 +210,36 @@ class PowerSOM {
         $this.map.printMap()
     }
 
-    [float] normalizeData($data) {
+    [Object] normalizeData($data) {
 
+        
         for($i = 0; $i -lt $data.Count; $i++) {
-            $magnitude = 0
-
-            
+            [float] $magnitude = 0
 
             # Calculate vector magnitude
             for($j = 0; $j -lt $data[$i].Count; $j++) {
-                Write-Host $data[$i, $j]
-                $magnitude += $data[$i][$j]*$data[$i][$j]
+                $magnitude += [Math]::Pow($data[$i][$j], 2)
             }
             $magnitude = [Math]::Sqrt($magnitude)
 
             # Calculate unit vector
             for($j = 0; $j -lt $data[$i].Count; $j++) {
-                $data[$i] = $data[$i][$j]/$magnitude
+                
+                $data[$i][$j] = $data[$i][$j]/$magnitude
             }
-
-            Write-Host $data
         }
         return $data
+        
+        <#
+        # Find min and max
+        $min = $data[0]
+        $max = $data[0]
+        for($i = 0; $i -lt $data.count; $i++) {
+            if ($data[0]
+        }
+        #>
+        #return 0.0
     }
-
-
 
     [int] getRandomNum($range, $exclude) {
         $RandomRange = $range | Where-Object { $exclude -notcontains $_ }
@@ -271,31 +249,31 @@ class PowerSOM {
 }
 
 # Import dataset
-$header = Get-Content Documents\Code\Powershell\Credit_Card_Applications.csv
-$header = $data[0].split(",")
-#$data > Documents\Code\Powershell\d.csv
-#>
-$dataset = Import-Csv Documents\Code\Powershell\Credit_Card_Applications.csv |
-    Select -ExpandProperty
+$dataset = (Get-Content "A:\Machine Learning\Deep Learning\Credit_Card_Applications.csv")
+$size = $dataset.Count-1
+$header = $dataset[0].split(",")
+$dataset = $dataset[1..($dataset.Count-1)].split(",")
 
-$trainset = @()
+# Format data into 2d array
+$trainingset = ,@()
 
+$count = 0
+for($i = 0; $i -lt $size; $i++) {
+    $row = @()
+    for($j = 0; $j -lt $header.Count; $j++) {
+        $row += $dataset[$count++]
+    }
+    if ($i -eq 0) {
+        $trainingset = ,@($row)
+    } else {
+        $trainingset += ,@($row)
+    }
+}
 
-Write-Host $header[0]
+# Normalize data to match weights
+$som = [PowerSOM]::new(10, 10, 1.0, 0.5)
+$trainingset = $som.normalizeData($trainingset)
 
-
-<# testing
-$data = ((0.1, 0.2, 0.3, 0.4), 
-        (0.5, 0.6, 0.7, 0.8),
-        (0.9, 0.10, 0.11, 0.12),
-        (0.13, 0.14, 0.15, 0.16)) 
-Write-Host $data.Count
-#>
-
-
-$som = [PowerSOM]::new(10, 10, 16, 1.0, 0.5)
-#$data = $som.normalizeData($data)
-
-
-#$som.train($A, 1000)
-#$som.mapData($A)
+# Run SOM
+$som.train($trainingset, 100)
+$som.mapData($trainingset)
