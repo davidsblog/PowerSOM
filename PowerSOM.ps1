@@ -51,10 +51,10 @@ class Node {
 }
 
 class Map {
-    $map = ,@()
-    $x = 10
-    $y = 10
-    $width = 10
+    $private:map = ,@()
+    $private:x = 10
+    $private:y = 10
+    $private:width = 10
 
     Map($x = 10, $y = 10) {
         $this.x = $x
@@ -164,11 +164,11 @@ class Map {
 }
 
 class PowerSOM {
-    $x
-    $y
-    $sigma = 1.0
-    $learnRate = 0.5
-    $map
+    $private:x
+    $private:y
+    $private:sigma = 1.0
+    $private:learnRate = 0.5
+    $private:map
 
     # Constructor
     PowerSOM($x, $y, $sigma=1.0, $learnRate=0.5) {
@@ -211,8 +211,6 @@ class PowerSOM {
     }
 
     [Object] normalizeData($data) {
-
-        
         for($i = 0; $i -lt $data.Count; $i++) {
             [float] $magnitude = 0
 
@@ -229,16 +227,6 @@ class PowerSOM {
             }
         }
         return $data
-        
-        <#
-        # Find min and max
-        $min = $data[0]
-        $max = $data[0]
-        for($i = 0; $i -lt $data.count; $i++) {
-            if ($data[0]
-        }
-        #>
-        #return 0.0
     }
 
     [int] getRandomNum($range, $exclude) {
