@@ -243,7 +243,7 @@ $header = $dataset[0].split(",")
 $dataset = $dataset[1..($dataset.Count-1)].split(",")
 
 # Format data into 2d array
-$trainingset = ,@()
+$data = ,@()
 
 $count = 0
 for($i = 0; $i -lt $size; $i++) {
@@ -252,16 +252,18 @@ for($i = 0; $i -lt $size; $i++) {
         $row += $dataset[$count++]
     }
     if ($i -eq 0) {
-        $trainingset = ,@($row)
+        $data = ,@($row)
     } else {
-        $trainingset += ,@($row)
+        $data += ,@($row)
     }
 }
 
-# Normalize data to match weights
+# Create 10x10 Map 
 $som = [PowerSOM]::new(10, 10, 1.0, 0.5)
-$trainingset = $som.normalizeData($trainingset)
+
+# Normalize data to match weights
+$data = $som.normalizeData($data)
 
 # Run SOM
-$som.train($trainingset, 100)
-$som.mapData($trainingset)
+$som.train($data, 100)
+$som.mapData($data)
