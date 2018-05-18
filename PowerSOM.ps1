@@ -2,7 +2,7 @@ class Node {
     [int]$private:x = 0
     [int]$private:y = 0
     $private:weight = @() 
-    $private:vectors = @()
+    $private:vectors = ,@()
 
     Node($x, $y, $weight) {
         $this.x = $x
@@ -35,6 +35,14 @@ class Node {
     }
 
     [float] getNodeDistance($node) {
+        [float]$distance = 0
+        for($i = 0; $i -lt $this.weight.Count; $i++) {
+            $distance += ($node.weight[$i] - $this.weight[$i]) * ($node.weight[$i] - $this.weight[$i])
+        }
+        return [math]::Sqrt($distance)
+    }
+
+    [float] getPhysicalDistance($node) {
         $dX = ($this.x-$node.x)
         $dY = ($this.y-$node.y)
 
@@ -42,7 +50,7 @@ class Node {
     }
 
     addVector($vector) {
-        $this.vectors += $vector
+        $this.vectors += ,@($vector)
     }
 
     [Object] getVectors() {
@@ -130,7 +138,7 @@ class Map {
         # Calculate neighbourhood
         foreach($n in $this.map) {
             $w = @()
-            $dist = $bmu.getNodeDistance($n)
+            $dist = $bmu.getPhysicalDistance($n)
             if ($dist -le $radius) {
                 # Update weight w' = w + o*l*(v-w)
                 # Write-Host "X:" $n.x "    Y:" $n.y "    dist:" $dist "    r:" $radius
@@ -154,6 +162,10 @@ class Map {
         $this.map[$node.x, $node.y].addVector($vector)
     }
 
+    [Object] getMap() {
+        return $this.map
+    }
+
     printMap() {
         for($i = 0; $i -lt $this.x; $i++) {
             for($j = 0; $j -lt $this.y; $j++) {
@@ -169,6 +181,7 @@ class PowerSOM {
     $private:sigma = 1.0
     $private:learnRate = 0.5
     $private:map
+    $magnitudes = @()
 
     # Constructor
     PowerSOM($x, $y, $sigma=1.0, $learnRate=0.5) {
@@ -201,13 +214,16 @@ class PowerSOM {
         }
     }
 
-    mapData($data) {
+    [Object] mapData($data) {
         for($i = 0; $i -lt $data.Count; $i++) {
             $winner = $this.map.findBMU($data[$i])
+            $data[$i] = $this.denormalizeVector($data[$i], $this.magnitudes[$i])
             $this.map.addVector($winner, $data[$i])
         }
 
-        $this.map.printMap()
+        #$this.map.printMap()
+
+        return $this.map.map
     }
 
     [Object] normalizeData($data) {
@@ -218,15 +234,84 @@ class PowerSOM {
             for($j = 0; $j -lt $data[$i].Count; $j++) {
                 $magnitude += [Math]::Pow($data[$i][$j], 2)
             }
-            $magnitude = [Math]::Sqrt($magnitude)
+            $this.magnitudes += [Math]::Sqrt($magnitude)
 
             # Calculate unit vector
             for($j = 0; $j -lt $data[$i].Count; $j++) {
                 
-                $data[$i][$j] = $data[$i][$j]/$magnitude
+                $data[$i][$j] = $data[$i][$j]/$this.magnitudes[$i]
             }
         }
         return $data
+    }
+
+    [Object] denormalizeVector($vector, $magnitude) {
+        for($i = 0; $i -lt $vector.count; $i++) {
+            $vector[$i] *= $magnitude
+        }
+        return $vector
+    }
+
+    [Object] denormalizeData($data) {
+        for($i = 0; $i -lt $data.Count; $i++) {
+            # Calculate vector
+            for($j = 0; $j -lt $data.Count; $j++) {
+                $data[$i][$j] *= $this.magnitudes[$i]
+            }
+        }
+        return $data
+    }
+
+    [Object] getDistanceMap() {
+        $distMap = New-Object 'object[,]' $this.x, $this.y
+        $nodeMap = $this.map.getMap()
+        $distance = 0
+
+        for($i = 0; $i -lt $this.x; $i++) {
+            for($j = 0; $j -lt $this.y; $j++) {
+                # Write-Host $distMap[$i, $j].weight
+
+                # Calculate node distance
+                if($nodeMap[($i-1), $j].weight -ne $null) {
+                    $t = $nodeMap[($i-1), $j]
+                    $d = $nodeMap[$i, $j].getNodeDistance($t)
+                    $distance += [Math]::Pow($d, 2)
+                } 
+                if($distMap[($i+1), $j].weight -ne $null) {
+                    $t = $nodeMap[($i+1), $j]
+                    $d = $nodeMap[$i, $j].getNodeDistance($t)
+                    $distance += [Math]::Pow($d, 2)
+                } 
+                if($nodeMap[$i, ($j-1)].weight -ne $null) {
+                    $t = $nodeMap[$i, ($j-1)]
+                    $d = $nodeMap[$i, $j].getNodeDistance($t)
+                    $distance += [Math]::Pow($d, 2)
+                } 
+                if($nodeMap[$i, ($j+1)].weight -ne $null) {
+                    $t = $nodeMap[$i, ($j+1)]
+                    $d = $nodeMap[$i, $j].getNodeDistance($t)
+                    $distance += [Math]::Pow($d, 2)
+                } 
+                $distMap[$i, $j] = [Math]::Sqrt($distance)
+            }
+            $distance = 0
+        }
+        return $distMap
+    }
+
+    [Object] getOutliers($signal, $distMap) {
+        # Find nodes with distance greater than signal
+        $outliers = ,@()
+        $max = ($distMap | Measure -Max).Maximum
+        for($i = 0; $i -lt $this.x; $i++) {
+            for($j = 0; $j -lt $this.y; $j++) {
+                if((($distMap[$i, $j]/$max) -ge $signal) -and ($this.map.map[$i, $j].getVectors().count -gt 0)) {
+                    Write-Host "t:" $this.map.map[$i, $j].getVectors()
+                    $outliers += @($this.map.map[$i, $j].getVectors())
+                }
+            }
+        }
+        return $outliers
     }
 
     [int] getRandomNum($range, $exclude) {
@@ -237,14 +322,13 @@ class PowerSOM {
 }
 
 # Import dataset
-$dataset = (Get-Content "A:\Machine Learning\Deep Learning\Credit_Card_Applications.csv")
+$dataset = (Get-Content "C:\Users\nbroadbent\Documents\Code\Powershell\Credit_Card_Applications.csv")
 $size = $dataset.Count-1
 $header = $dataset[0].split(",")
 $dataset = $dataset[1..($dataset.Count-1)].split(",")
 
 # Format data into 2d array
 $data = ,@()
-
 $count = 0
 for($i = 0; $i -lt $size; $i++) {
     $row = @()
@@ -266,4 +350,15 @@ $data = $som.normalizeData($data)
 
 # Run SOM
 $som.train($data, 100)
-$som.mapData($data)
+Write-Host "Done Training"
+$map = $som.mapData($data)
+$distMap = $som.getDistanceMap()
+Write-Host "Done Mapping"
+
+$outliers = $som.getOutliers(0.8, $distMap)
+Write-Host "Printing Outliers"
+
+foreach($node in $outliers) {
+    #Write-Host "X:" $node.x "    Y:" $node.y "    W:" $node.weight
+    Write-Host "Outlier:" $node
+}
