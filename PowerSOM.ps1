@@ -2,7 +2,7 @@ class Node {
     [int]$private:x = 0
     [int]$private:y = 0
     $private:weight = @() 
-    $private:vectors = ,@()
+    $private:vectors = @()
 
     Node($x, $y, $weight) {
         $this.x = $x
@@ -68,7 +68,6 @@ class Map {
         $this.x = $x
         $this.y = $y
         $this.width = ($x, $y | Measure -Max).Maximum/2
-
         $this.map = New-Object 'object[,]' $x, $y
 
         # Initialize map
@@ -78,14 +77,12 @@ class Map {
                 $this.map[$i, $j] = [Node]::new($i, $j, 0.001)
             } 
         }
-        #Write-Host $this.map 
     }
     
 
     initializeWeights($num) {
         for($i = 0; $i -lt $this.x; $i++) {
             for($j = 0; $j -lt $this.y; $j++) {
-                # Write-Host $this.map[$i, $j]
                 $this.map[$i, $j].setWeight($this.getRandomWeightVector($num))
             }
         }
@@ -214,10 +211,14 @@ class PowerSOM {
         }
     }
 
-    [Object] mapData($data) {
-        for($i = 0; $i -lt $data.Count; $i++) {
+    [Object] mapData($data, $denormalize) {
+          for($i = 0; $i -lt $data.Count; $i++) {
             $winner = $this.map.findBMU($data[$i])
-            $data[$i] = $this.denormalizeVector($data[$i], $this.magnitudes[$i])
+
+            if ($denormalize) {
+                $data[$i] = $this.denormalizeVector($data[$i], $this.magnitudes[$i])
+            }
+
             $this.map.addVector($winner, $data[$i])
         }
 
@@ -254,7 +255,6 @@ class PowerSOM {
 
     [Object] denormalizeData($data) {
         for($i = 0; $i -lt $data.Count; $i++) {
-            # Calculate vector
             for($j = 0; $j -lt $data.Count; $j++) {
                 $data[$i][$j] *= $this.magnitudes[$i]
             }
@@ -269,8 +269,6 @@ class PowerSOM {
 
         for($i = 0; $i -lt $this.x; $i++) {
             for($j = 0; $j -lt $this.y; $j++) {
-                # Write-Host $distMap[$i, $j].weight
-
                 # Calculate node distance
                 if($nodeMap[($i-1), $j].weight -ne $null) {
                     $t = $nodeMap[($i-1), $j]
@@ -301,13 +299,13 @@ class PowerSOM {
 
     [Object] getOutliers($signal, $distMap) {
         # Find nodes with distance greater than signal
-        $outliers = ,@()
+        $outliers = @()
         $max = ($distMap | Measure -Max).Maximum
         for($i = 0; $i -lt $this.x; $i++) {
             for($j = 0; $j -lt $this.y; $j++) {
-                if((($distMap[$i, $j]/$max) -ge $signal) -and ($this.map.map[$i, $j].getVectors().count -gt 0)) {
-                    Write-Host "t:" $this.map.map[$i, $j].getVectors()
-                    $outliers += @($this.map.map[$i, $j].getVectors())
+                if((($distMap[$i, $j]/$max) -ge $signal) -and ($this.map.map[$i, $j].getVectors().count -gt 1)) {
+                    Write-Host "t:" $this.map.map[$i, $j].getVectors().count
+                    $outliers += ,($this.map.map[$i, $j].getVectors())
                 }
             }
         }
@@ -319,46 +317,4 @@ class PowerSOM {
 
         return Get-Random -InputObject $RandomRange
     }
-}
-
-# Import dataset
-$dataset = (Get-Content "C:\Users\nbroadbent\Documents\Code\Powershell\Credit_Card_Applications.csv")
-$size = $dataset.Count-1
-$header = $dataset[0].split(",")
-$dataset = $dataset[1..($dataset.Count-1)].split(",")
-
-# Format data into 2d array
-$data = ,@()
-$count = 0
-for($i = 0; $i -lt $size; $i++) {
-    $row = @()
-    for($j = 0; $j -lt $header.Count; $j++) {
-        $row += $dataset[$count++]
-    }
-    if ($i -eq 0) {
-        $data = ,@($row)
-    } else {
-        $data += ,@($row)
-    }
-}
-
-# Create 10x10 Map 
-$som = [PowerSOM]::new(10, 10, 1.0, 0.5)
-
-# Normalize data to match weights
-$data = $som.normalizeData($data)
-
-# Run SOM
-$som.train($data, 100)
-Write-Host "Done Training"
-$map = $som.mapData($data)
-$distMap = $som.getDistanceMap()
-Write-Host "Done Mapping"
-
-$outliers = $som.getOutliers(0.8, $distMap)
-Write-Host "Printing Outliers"
-
-foreach($node in $outliers) {
-    #Write-Host "X:" $node.x "    Y:" $node.y "    W:" $node.weight
-    Write-Host "Outlier:" $node
 }
