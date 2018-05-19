@@ -73,7 +73,6 @@ class Map {
         # Initialize map
         for($i=0; $i -lt $x; $i++) {
             for($j=0; $j -lt $y; $j++) {
-                #$row += [Node]::new($i, $j, 0.001)
                 $this.map[$i, $j] = [Node]::new($i, $j, 0.001)
             } 
         }
@@ -136,21 +135,13 @@ class Map {
         foreach($n in $this.map) {
             $w = @()
             $dist = $bmu.getPhysicalDistance($n)
-            if ($dist -le $radius) {
-                # Update weight w' = w + o*l*(v-w)
-                # Write-Host "X:" $n.x "    Y:" $n.y "    dist:" $dist "    r:" $radius
-
-                $a = $this.calculateInfluence($dist) * $learningRate
-
+            if ($dist -le $radius) { 
                 # Calculate new weight: w' = w + o*l*(v-w)
+                $a = $this.calculateInfluence($dist) * $learningRate
                 for($i = 0; $i -lt $iv.Count; $i++) {
                     $w += $bmu.weight[$i] + $a*($iv[$i] - $bmu.weight[$i])
                 }
- 
                 $n.setWeight($w)
-                
-                # Write-Host "Old W:" $n.getWeight() "    New W:" $w
-                # Write-Host "X:" $n.getX()"    Y:" $n.getY()"    W:" $n.getWeight() "    V:" $n.getVectors()
             }
         }
     } 
@@ -197,8 +188,6 @@ class PowerSOM {
             # Select random input vector
             $inVect = $data[$this.getRandomNum(0..($data.Count-1), $null)]
 
-            # Write-Host "In vector:" $inVect
-
             # Find winning node
             $bmu = $this.map.findBMU($inVect)
 
@@ -212,18 +201,15 @@ class PowerSOM {
     }
 
     [Object] mapData($data, $denormalize) {
-          for($i = 0; $i -lt $data.Count; $i++) {
+        # Map data vectors to their winning node
+        for($i = 0; $i -lt $data.Count; $i++) {
             $winner = $this.map.findBMU($data[$i])
 
             if ($denormalize) {
                 $data[$i] = $this.denormalizeVector($data[$i], $this.magnitudes[$i])
             }
-
             $this.map.addVector($winner, $data[$i])
         }
-
-        #$this.map.printMap()
-
         return $this.map.map
     }
 
@@ -267,9 +253,9 @@ class PowerSOM {
         $nodeMap = $this.map.getMap()
         $distance = 0
 
+        # Calculate node distance
         for($i = 0; $i -lt $this.x; $i++) {
-            for($j = 0; $j -lt $this.y; $j++) {
-                # Calculate node distance
+            for($j = 0; $j -lt $this.y; $j++) {       
                 if($nodeMap[($i-1), $j].weight -ne $null) {
                     $t = $nodeMap[($i-1), $j]
                     $d = $nodeMap[$i, $j].getNodeDistance($t)
@@ -294,17 +280,23 @@ class PowerSOM {
             }
             $distance = 0
         }
+
+        # Range distance
+        $max = ($distMap | Measure -Max).Maximum
+        for($i = 0; $i -lt $this.x; $i++) {
+            for($j = 0; $j -lt $this.y; $j++) {     
+                $distMap[$i, $j] /= $max
+            }
+        }
         return $distMap
     }
 
     [Object] getOutliers($signal, $distMap) {
         # Find nodes with distance greater than signal
         $outliers = @()
-        $max = ($distMap | Measure -Max).Maximum
         for($i = 0; $i -lt $this.x; $i++) {
             for($j = 0; $j -lt $this.y; $j++) {
-                if((($distMap[$i, $j]/$max) -ge $signal) -and ($this.map.map[$i, $j].getVectors().count -gt 1)) {
-                    Write-Host "t:" $this.map.map[$i, $j].getVectors().count
+                if((($distMap[$i, $j]) -ge $signal) -and ($this.map.map[$i, $j].getVectors().count -gt 1)) {
                     $outliers += ,($this.map.map[$i, $j].getVectors())
                 }
             }
@@ -313,8 +305,6 @@ class PowerSOM {
     }
 
     [int] getRandomNum($range, $exclude) {
-        $RandomRange = $range | Where-Object { $exclude -notcontains $_ }
-
-        return Get-Random -InputObject $RandomRange
+        return Get-Random -InputObject $range | Where-Object { $exclude -notcontains $_ }
     }
 }
