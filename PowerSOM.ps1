@@ -215,7 +215,7 @@ class PowerSOM {
 
     [Object] normalizeData($data) {
         for($i = 0; $i -lt $data.Count; $i++) {
-            [float] $magnitude = 0
+            [double] $magnitude = 0
 
             # Calculate vector magnitude
             for($j = 0; $j -lt $data[$i].Count; $j++) {
