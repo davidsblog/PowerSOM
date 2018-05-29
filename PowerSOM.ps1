@@ -1,6 +1,6 @@
 class Node {
-    [int]$private:x = 0
-    [int]$private:y = 0
+    [int] $private:x = 0
+    [int] $private:y = 0
     $private:weight = @() 
     $private:vectors = @()
 
@@ -58,27 +58,50 @@ class Node {
     }
 }
 
-class Map {
+class PowerSOM {
     $private:map = ,@()
+    $private:magnitudes = @()
     $private:x = 10
     $private:y = 10
     $private:width = 10
+    $private:sigma = 1.0
+    $private:learnRate = 0.5
 
-    Map($x = 10, $y = 10) {
+    # Constructors
+    PowerSOM($x, $y, $sigma=1.0, $learnRate=0.5) {
         $this.x = $x
         $this.y = $y
         $this.width = ($x, $y | Measure -Max).Maximum/2
-        $this.map = New-Object 'object[,]' $x, $y
-
+        $this.sigma = $sigma
+        $this.learnRate = $learnRate
+        
         # Initialize map
+        $this.map = New-Object 'object[,]' $x, $y
         for($i=0; $i -lt $x; $i++) {
             for($j=0; $j -lt $y; $j++) {
                 $this.map[$i, $j] = [Node]::new($i, $j, 0.001)
             } 
         }
     }
-    
+    PowerSOM($som) {
+        $this.x = $som.x
+        $this.y = $som.y
+        $this.width = ($this.x, $this.y | Measure -Max).Maximum/2
+        $this.sigma = $som.sigma
+        $this.learnRate = $som.learnRate
+       
+        # Initialize map
+        $this.map = New-Object 'object[,]' $this.x, $this.y
+        for($i=0; $i -lt $this.x; $i++) {
+            for($j=0; $j -lt $this.y; $j++) {
+                $node = $som.map[$i, $j]
+                $this.map[$i, $j] = [Node]::new($i, $j, $node.weight)
+            } 
+        }
 
+        Write-Host $this.printMap()
+    }
+    
     initializeWeights($num) {
         for($i = 0; $i -lt $this.x; $i++) {
             for($j = 0; $j -lt $this.y; $j++) {
@@ -154,103 +177,44 @@ class Map {
         return $this.map
     }
 
-    printMap() {
-        for($i = 0; $i -lt $this.x; $i++) {
-            for($j = 0; $j -lt $this.y; $j++) {
-                Write-Host "X:" $this.map[$i, $j].getX()"    Y:" $this.map[$i, $j].getY()"       V:" $this.map[$i, $j].getVectors()
-            }
-        }
-    }
-}
-
-class PowerSOM {
-    $private:x
-    $private:y
-    $private:sigma = 1.0
-    $private:learnRate = 0.5
-    $private:map
-    $magnitudes = @()
-
-    # Constructor
-    PowerSOM($x, $y, $sigma=1.0, $learnRate=0.5) {
-        $this.x = $x
-        $this.y = $y
-        $this.sigma = $sigma
-        $this.learnRate = $learnRate
-
-        $this.map = [Map]::new($x, $y)
-    }
+    ## Public Methods ##
 
     train($data, $epochs) {
-        $this.map.initializeWeights($data[0].Count)
+        $this.initializeWeights($data[0].Count)
+        Write-Host $data[0].Count
 
         for($i = 0; $i -lt $epochs; $i++) {
             # Select random input vector
             $inVect = $data[$this.getRandomNum(0..($data.Count-1), $null)]
 
             # Find winning node
-            $bmu = $this.map.findBMU($inVect)
+            $bmu = $this.findBMU($inVect)
 
             # Decay Radius and Learning rate
-            $radius = $this.map.decayRadius(0, $epochs)
-            $this.learnRate = $this.map.decayLearningRate(0, 20, $this.learnRate)
+            $radius = $this.decayRadius(0, $epochs)
+            $this.learnRate = $this.decayLearningRate(0, 20, $this.learnRate)
 
             # Update winning node's neighbours
-            $this.map.updateNeighbourhood($inVect, $bmu, $radius, $this.learnRate)
+            $this.updateNeighbourhood($inVect, $bmu, $radius, $this.learnRate)
         }
     }
 
     [Object] mapData($data, $denormalize) {
         # Map data vectors to their winning node
         for($i = 0; $i -lt $data.Count; $i++) {
-            $winner = $this.map.findBMU($data[$i])
+            $winner = $this.findBMU($data[$i])
 
             if ($denormalize) {
                 $data[$i] = $this.denormalizeVector($data[$i], $this.magnitudes[$i])
             }
-            $this.map.addVector($winner, $data[$i])
+            $this.addVector($winner, $data[$i])
         }
-        return $this.map.map
-    }
-
-    [Object] normalizeData($data) {
-        for($i = 0; $i -lt $data.Count; $i++) {
-            [double] $magnitude = 0
-
-            # Calculate vector magnitude
-            for($j = 0; $j -lt $data[$i].Count; $j++) {
-                $magnitude += [Math]::Pow($data[$i][$j], 2)
-            }
-            $this.magnitudes += [Math]::Sqrt($magnitude)
-
-            # Calculate unit vector
-            for($j = 0; $j -lt $data[$i].Count; $j++) {
-                
-                $data[$i][$j] = $data[$i][$j]/$this.magnitudes[$i]
-            }
-        }
-        return $data
-    }
-
-    [Object] denormalizeVector($vector, $magnitude) {
-        for($i = 0; $i -lt $vector.count; $i++) {
-            $vector[$i] *= $magnitude
-        }
-        return $vector
-    }
-
-    [Object] denormalizeData($data) {
-        for($i = 0; $i -lt $data.Count; $i++) {
-            for($j = 0; $j -lt $data.Count; $j++) {
-                $data[$i][$j] *= $this.magnitudes[$i]
-            }
-        }
-        return $data
+        return $this.getMap()
     }
 
     [Object] getDistanceMap() {
         $distMap = New-Object 'object[,]' $this.x, $this.y
-        $nodeMap = $this.map.getMap()
+        $nodeMap = $this.getMap()
         $distance = 0
 
         # Calculate node distance
@@ -296,15 +260,57 @@ class PowerSOM {
         $outliers = @()
         for($i = 0; $i -lt $this.x; $i++) {
             for($j = 0; $j -lt $this.y; $j++) {
-                if((($distMap[$i, $j]) -ge $signal) -and ($this.map.map[$i, $j].getVectors().count -gt 1)) {
-                    $outliers += ,($this.map.map[$i, $j].getVectors())
+                if((($distMap[$i, $j]) -ge $signal) -and ($this.map[$i, $j].getVectors().count -gt 1)) {
+                    $outliers += ,($this.map[$i, $j].getVectors())
                 }
             }
         }
         return $outliers
     }
 
+    [Object] normalizeData($data) {
+        for($i = 0; $i -lt $data.Count; $i++) {
+            [double] $magnitude = 0
+
+            # Calculate vector magnitude
+            for($j = 0; $j -lt $data[$i].Count; $j++) {
+                $magnitude += [Math]::Pow($data[$i][$j], 2)
+            }
+            $this.magnitudes += [Math]::Sqrt($magnitude)
+
+            # Calculate unit vector
+            for($j = 0; $j -lt $data[$i].Count; $j++) {
+                $data[$i][$j] = $data[$i][$j]/$this.magnitudes[$i]
+            }
+        }
+        return $data
+    }
+
+    [Object] denormalizeVector($vector, $magnitude) {
+        for($i = 0; $i -lt $vector.count; $i++) {
+            $vector[$i] *= $magnitude
+        }
+        return $vector
+    }
+
+    [Object] denormalizeData($data) {
+        for($i = 0; $i -lt $data.Count; $i++) {
+            for($j = 0; $j -lt $data.Count; $j++) {
+                $data[$i][$j] *= $this.magnitudes[$i]
+            }
+        }
+        return $data
+    }
+
     [int] getRandomNum($range, $exclude) {
         return Get-Random -InputObject $range | Where-Object { $exclude -notcontains $_ }
+    }
+
+    printMap() {
+        for($i = 0; $i -lt $this.x; $i++) {
+            for($j = 0; $j -lt $this.y; $j++) {
+                Write-Host "X:" $this.map[$i, $j].getX()"    Y:" $this.map[$i, $j].getY()"       w:" $this.map[$i, $j].getWeight()"       V:" $this.map[$i, $j].getVectors()
+            }
+        }
     }
 }
