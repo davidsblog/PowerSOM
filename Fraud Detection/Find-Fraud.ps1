@@ -1,4 +1,6 @@
-﻿Import-Module "..\PowerSOM.ps1"
+if (!(Get-Module "PowerSOM")) {
+    Import-Module "..\PowerSOM.ps1"
+}
 
 # Import dataset
 $dataset = (Get-Content "Credit_Card_Applications.csv")
